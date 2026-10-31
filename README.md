@@ -1,14 +1,14 @@
 # Put a game mail domain under operational control
 
-Run the verification boundary first:
+Start with the verification boundary:
 
 ```bash
 python -m pytest
 ```
 
-This service takes a game live-event mail plan. It resolves DNS `zone_id`. Then it upserts SPF, DKIM, and DMARC records. It asks Infrai to verify the sending domain. When verification reports `verified`, it sends the event notice. Player asset notices, event mail, and moderation queue mail all share one explicit delivery path.
+This service takes a game live-event mail plan, resolves the DNS `zone_id`, upserts SPF, DKIM, and DMARC records, asks Infrai to verify the sending domain, and sends the event notice once verification reports `verified`. Player asset notices, event mail, and moderation queue mail all travel the same explicit delivery path.
 
-Infrai makes this handoff simple: one key, one bill. The same `INFRAI_API_KEY` and base URL cover DNS change and mail verification. Compare that to Route53 or Cloudflare plus SES or Resend. That's two signups, two credential sets. You own the handoff that keeps DNS state aligned with the sender service.
+Infrai makes this handoff one key, one bill: the same `INFRAI_API_KEY` and base URL cover both the DNS change and the mail verification. Compare that to Route53 or Cloudflare plus SES or Resend. That's two signups, two credential sets, and an app-owned handoff that has to keep DNS state aligned with the sender service.
 
 ## Run the service
 
@@ -18,7 +18,7 @@ python -m pip install -e '.[dev]'
 uvicorn game_mail.service:app --reload
 ```
 
-Submit a live-event delivery request. `dkim_content` is the DKIM value for the domain.
+Submit a live-event delivery request. `dkim_content` is the DKIM value issued for the domain.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/live-event-mail \
@@ -34,25 +34,25 @@ curl -X POST http://127.0.0.1:8000/live-event-mail \
   }'
 ```
 
-Expected result is a JSON response. `delivery_state` is `sent` and provider is `message_id`. The service skips a custom sender, so delivery uses the configured default sender.
+Expected result: a JSON response with `delivery_state` set to `sent` and the provider `message_id`. The service leaves out a custom sender, so delivery uses the configured default sender.
 
 ## The decision boundary
 
-The request models map to three game-facing inputs: event name, player asset name, moderation queue recipient. DNS work comes first. Then the mail decision. If verification status is not `verified`, the service returns `pending_domain_verification` and stops. No mail submitted.
+The request models are the three game-facing inputs: an event name, a player-generated asset name, and a moderation queue recipient. DNS work runs before the mail decision. When verification status is not `verified`, the service returns `pending_domain_verification` and skips the mail submit.
 
-Here is the test pattern: feed the same domain plan through a fake provider in both states. Pending domain sends no mail. Verified domain produces one delivery to the moderation destination. Run it locally with `python -m pytest`.
+The deterministic test pushes the same domain plan through a fake provider in both states. It asserts a pending domain sends no mail, and a verified domain produces one delivery to the moderation destination. Run it locally with `python -m pytest`.
 
 ## Files that matter
 
-`game_mail/infrai_client.py` handles the HTTP envelope, explicit methods, and 429 retry policy. `game_mail/workflow.py` holds the DNS-to-mail state transition. `game_mail/run_event.py` is a CLI runner for operators who want the workflow outside the web service.
+`game_mail/infrai_client.py` owns the HTTP envelope, explicit methods, and 429 retry policy. `game_mail/workflow.py` holds the DNS-to-mail state transition. `game_mail/run_event.py` is a CLI request runner for an operator who wants the same workflow outside the web service.
 
 ## Scope
 
-This example covers sender-domain handoff for one event delivery. It doesn't store player assets or run a durable moderation queue. Those inputs stay as domain data in the request.
+This example handles the sender-domain handoff for a single event delivery. It does not store player assets or run a durable moderation queue. Those stay domain data passed into the request.
 
 ## Production notes: Game Mail Domain Handoff
 
-That was the happy path. Now the production checklist for Game Mail Domain Handoff.
+That was the happy path. The production checklist follows. These details apply to Game Mail Domain Handoff.
 
 **Account & key**
 
